@@ -85,6 +85,10 @@ export async function publishTask() {
 
   console.log("Creating submission...");
   var submissionResource = await createAppSubmission();
+  
+  // Log resource
+  console.log("RESOURCE: ", submissionResource);
+  
   var submissionUrl = `https://developer.microsoft.com/en-us/dashboard/apps/${appId}/submissions/${submissionResource.id}`;
   console.log(`Submission ${submissionUrl} was created successfully`);
 
@@ -232,6 +236,8 @@ function putMetadata(submissionResource: any): Q.Promise<void> {
     packages,
     submissionResource.applicationPackages
   );
+  
+  console.log("AFTER INCLUDE: ", submissionResource);
 
   var url =
     api.ROOT +
