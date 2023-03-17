@@ -2,10 +2,12 @@
   "name": "windows-store-action",
   "version": "1.0.0",
   "description": "GitHub Action to deploy MSIX Packages to the Windows Store. Most code was taken from https://github.com/Microsoft/windows-dev-center-vsts-extension",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "start": "ts-node-dev --respawn src/publish.ts",
-    "publish": "node --trace-warnings -r ts-node/register -r tsconfig-paths/register src/publish.ts"
+    "publish": "node --trace-warnings -r ts-node/register -r tsconfig-paths/register src/publish.ts",
+    "build": "tsc",
+    "package": "ncc build --source-map"
   },
   "repository": {
     "type": "git",
@@ -39,6 +41,7 @@
     "@types/q": "^1.5.5",
     "@types/request": "^2.48.8",
     "@types/uuid": "^8.3.0",
+    "@vercel/ncc": "^0.36.1",
     "del": "^2.2.2",
     "node-notifier": "^9.0.1",
     "shelljs": "^0.7.3",
