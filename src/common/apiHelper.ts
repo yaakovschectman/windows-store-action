@@ -3,110 +3,116 @@
  * create files required by the API, etc.
  */
 
-import request = require("./requestHelper");
-import { Dictionary } from "lodash";
-import fs = require("fs");
-import path = require("path");
+import request = require('./requestHelper')
+import {Dictionary} from 'lodash'
+import fs = require('fs')
+import path = require('path')
 
-var JSZip = require("jszip"); // JSZip typings have not been updated to the version we're using
-import Q = require("q");
+var JSZip = require('jszip') // JSZip typings have not been updated to the version we're using
+import Q = require('q')
 
 import {
   AnonymousCredential,
   BlobServiceClient,
   newPipeline,
-} from "@azure/storage-blob";
-var url = require("url");
+} from '@azure/storage-blob'
+var url = require('url')
 
 /**
  * A little part of the URL to the API that contains a version number.
  * This may need to be updated in the future to comply with the API.
  */
-export const API_URL_VERSION_PART = "/v1.0/my/";
+export const API_URL_VERSION_PART = '/v1.0/my/'
 
 /** The root of all API requests. */
-export var ROOT: string;
+export var ROOT: string
 
 /** How many times should we retry. */
-export const NUM_RETRIES = 5;
+export const NUM_RETRIES = 5
 
 /** Maximum number of packages allowed in one flight group */
-export const MAX_PACKAGES_PER_GROUP = 25;
+export const MAX_PACKAGES_PER_GROUP = 25
 
 /**
  * The message used when a commit fails. Note that this does not need to be very
  * informative since the user will see more details in additional messages.
  */
-const COMMIT_FAILED_MSG = "Commit failed";
+const COMMIT_FAILED_MSG = 'Commit failed'
 
-export function deleteOldPackages(submissionPackages: any, numberOfPackagesToKeep: number): void
-{
-    if (numberOfPackagesToKeep === undefined) {
-        return;
-    }
+export function deleteOldPackages(
+  submissionPackages: any,
+  numberOfPackagesToKeep: number
+): void {
+  if (numberOfPackagesToKeep === undefined) {
+    return
+  }
 
-    if (numberOfPackagesToKeep > MAX_PACKAGES_PER_GROUP) {
-        numberOfPackagesToKeep = MAX_PACKAGES_PER_GROUP;
-    }
+  if (numberOfPackagesToKeep > MAX_PACKAGES_PER_GROUP) {
+    numberOfPackagesToKeep = MAX_PACKAGES_PER_GROUP
+  }
 
-    var dict :Dictionary<string[]>= {};
-    // For each of the target device family in the submission resource
-    // get all the different versions available
-    submissionPackages.forEach((submissionPackage: { hasOwnProperty: (arg0: string) => any; targetDeviceFamilies: any[]; version: any; targetPlatform: string; architecture: string; }) =>
-    {
-        if (submissionPackage.hasOwnProperty('targetDeviceFamilies') &&
-            Array.isArray(submissionPackage.targetDeviceFamilies) &&
-            submissionPackage.targetDeviceFamilies.length > 0)
-        {
-            submissionPackage.targetDeviceFamilies.forEach(targetDeviceFamily =>
-            {
-                if (dict[targetDeviceFamily] === undefined)
-                {
-                    dict[targetDeviceFamily] = [];
-                }
-                dict[targetDeviceFamily].push(submissionPackage.version);
-            });
+  var dict: Dictionary<string[]> = {}
+  // For each of the target device family in the submission resource
+  // get all the different versions available
+  submissionPackages.forEach(
+    (submissionPackage: {
+      hasOwnProperty: (arg0: string) => any
+      targetDeviceFamilies: any[]
+      version: any
+      targetPlatform: string
+      architecture: string
+    }) => {
+      if (
+        submissionPackage.hasOwnProperty('targetDeviceFamilies') &&
+        Array.isArray(submissionPackage.targetDeviceFamilies) &&
+        submissionPackage.targetDeviceFamilies.length > 0
+      ) {
+        submissionPackage.targetDeviceFamilies.forEach((targetDeviceFamily) => {
+          if (dict[targetDeviceFamily] === undefined) {
+            dict[targetDeviceFamily] = []
+          }
+          dict[targetDeviceFamily].push(submissionPackage.version)
+        })
+      } else {
+        var key =
+          submissionPackage.targetPlatform +
+          '_' +
+          submissionPackage.architecture
+        if (dict[key] === undefined) {
+          dict[key] = []
         }
-        else
-        {
-            var key = submissionPackage.targetPlatform + "_" + submissionPackage.architecture;
-            if (dict[key] === undefined)
-            {
-                dict[key] = [];
-            }
-            dict[key].push(submissionPackage.version);
-        }
-    });
-
-    var versionsToKeep = new Set();
-    for (var entry in dict)
-    {
-        if (dict.hasOwnProperty(entry))
-        {
-            // Sort in descending order of versions and only keep number of packages that we need
-            dict[entry].sort(compareVersions).reverse();
-            dict[entry].slice(0, numberOfPackagesToKeep).forEach(bundle => versionsToKeep.add(bundle));
-        }
+        dict[key].push(submissionPackage.version)
+      }
     }
+  )
 
-    if (versionsToKeep.size > 0)
-    {
-        console.log("Keeping packages with following versions:");
-        versionsToKeep.forEach(version =>
-        {
-            console.log(`${version}`);
-        });
+  var versionsToKeep = new Set()
+  for (var entry in dict) {
+    if (dict.hasOwnProperty(entry)) {
+      // Sort in descending order of versions and only keep number of packages that we need
+      dict[entry].sort(compareVersions).reverse()
+      dict[entry]
+        .slice(0, numberOfPackagesToKeep)
+        .forEach((bundle) => versionsToKeep.add(bundle))
     }
+  }
 
-    // Mark all the packages for deletion which are not present in the set of versions we calculated
-    submissionPackages.forEach((submissionPackage: { version: unknown; fileStatus: string; }) =>
-    {
-        if (!versionsToKeep.has(submissionPackage.version))
-        {
-            console.log(`Removing ${submissionPackage.version}`);
-            submissionPackage.fileStatus = 'PendingDelete';
-        }
-    });
+  if (versionsToKeep.size > 0) {
+    console.log('Keeping packages with following versions:')
+    versionsToKeep.forEach((version) => {
+      console.log(`${version}`)
+    })
+  }
+
+  // Mark all the packages for deletion which are not present in the set of versions we calculated
+  submissionPackages.forEach(
+    (submissionPackage: {version: unknown; fileStatus: string}) => {
+      if (!versionsToKeep.has(submissionPackage.version)) {
+        console.log(`Removing ${submissionPackage.version}`)
+        submissionPackage.fileStatus = 'PendingDelete'
+      }
+    }
+  )
 }
 
 /**
@@ -118,44 +124,44 @@ export function deleteOldPackages(submissionPackages: any, numberOfPackagesToKee
  * 2 > 1.5.1 > 1.5.0.45
  * 1.7 == 1.7.0.0
  */
- function compareVersions(x: string, y: string): number {
-  var i = 0;
-  var xParts = x.split('.');
-  var yParts = y.split('.');
+function compareVersions(x: string, y: string): number {
+  var i = 0
+  var xParts = x.split('.')
+  var yParts = y.split('.')
 
   // Add zeroes to shorter version to handle all cases as equal length
   while (xParts.length > yParts.length) {
-      yParts.push('0');
+    yParts.push('0')
   }
   while (yParts.length > xParts.length) {
-      xParts.push('0');
+    xParts.push('0')
   }
 
   // Compare parts
   for (i = 0; i < xParts.length; i++) {
-      var diff = parseInt(xParts[i], 10) - parseInt(yParts[i], 10);
-      if (diff) {
-          return diff;
-      }
+    var diff = parseInt(xParts[i], 10) - parseInt(yParts[i], 10)
+    if (diff) {
+      return diff
+    }
   }
 
   // Because both arrays are of equal length, 1.7 == 1.7.0.0
-  return 0;
+  return 0
 }
 
 export function includePackagesInSubmission(
   givenPackages: string[],
-  submissionPackages: { fileName: string; fileStatus: string }[]
+  submissionPackages: {fileName: string; fileStatus: string}[]
 ): void {
-  console.debug(`Adding ${givenPackages.length} package(s)`);
+  console.debug(`Adding ${givenPackages.length} package(s)`)
   givenPackages.map(makePackageEntry).forEach((packEntry) => {
     var entry = {
       fileName: packEntry,
-      fileStatus: "PendingUpload",
-    };
+      fileStatus: 'PendingUpload',
+    }
 
-    submissionPackages.push(entry);
-  });
+    submissionPackages.push(entry)
+  })
 }
 
 /**
@@ -163,17 +169,17 @@ export function includePackagesInSubmission(
  * @param submissionResource
  */
 export function createZipFromPackages(packages: string[]) {
-  console.debug(`Creating zip file`);
-  var zip = new JSZip();
+  console.debug(`Creating zip file`)
+  var zip = new JSZip()
 
   packages.forEach((aPath, i) => {
     // According to JSZip documentation, the directory separator used is a forward slash.
-    var entry = makePackageEntry(aPath, i).replace(/\\/g, "/");
-    console.debug(`Adding package path ${aPath} to zip as ${entry}`);
-    zip.file(entry, fs.createReadStream(aPath), { compression: "DEFLATE" });
-  });
+    var entry = makePackageEntry(aPath, i).replace(/\\/g, '/')
+    console.debug(`Adding package path ${aPath} to zip as ${entry}`)
+    zip.file(entry, fs.createReadStream(aPath), {compression: 'DEFLATE'})
+  })
 
-  return zip;
+  return zip
 }
 
 /**
@@ -186,9 +192,9 @@ export function pollSubmissionStatus(
   resourceLocation: string,
   publishMode: string
 ): Q.Promise<void> {
-  const POLL_DELAY = 300000; // Delay 5 minutes between poll requests
+  const POLL_DELAY = 300000 // Delay 5 minutes between poll requests
   var submissionCheckGenerator = () =>
-    checkSubmissionStatus(token, resourceLocation, publishMode);
+    checkSubmissionStatus(token, resourceLocation, publishMode)
   return request
     .withRetry(
       NUM_RETRIES,
@@ -207,11 +213,11 @@ export function pollSubmissionStatus(
             pollSubmissionStatus(token, resourceLocation, publishMode)
           )
           .catch((err) => {
-            console.log(err);
-            throw err;
-          });
+            console.log(err)
+            throw err
+          })
       }
-    });
+    })
 }
 
 /**
@@ -225,41 +231,41 @@ function checkSubmissionStatus(
   resourceLocation: string,
   publishMode: string
 ): Q.Promise<boolean> {
-  const statusMsg = `Submission status for "${resourceLocation}"`;
+  const statusMsg = `Submission status for "${resourceLocation}"`
   const requestParams = {
-    url: ROOT + resourceLocation + "/status",
-    method: "GET",
-  };
+    url: ROOT + resourceLocation + '/status',
+    method: 'GET',
+  }
 
   return request
     .performAuthenticatedRequest<any>(token, requestParams)
     .then(function (body) {
       /* Once the previous request has finished, examine the body to tell if we should start a new one. */
-      if (!body.status.endsWith("Failed")) {
-        var msg = statusMsg + body.status;
-        console.debug(statusMsg + body.status);
-        console.log(msg);
+      if (!body.status.endsWith('Failed')) {
+        var msg = statusMsg + body.status
+        console.debug(statusMsg + body.status)
+        console.log(msg)
 
         /* In immediate mode, we expect to get all the way to "Published" status.
          * In other modes, we stop at "Release" status. */
         return (
-          body.status == "Published" ||
-          (body.status == "Release" && publishMode != "Immediate")
-        );
+          body.status == 'Published' ||
+          (body.status == 'Release' && publishMode != 'Immediate')
+        )
       } else {
-        console.error(statusMsg + " failed with " + body.status);
-        console.error("Reported errors: ");
+        console.error(statusMsg + ' failed with ' + body.status)
+        console.error('Reported errors: ')
         for (var i = 0; i < body.statusDetails.errors.length; i++) {
-          var errDetail = body.statusDetails.errors[i];
-          console.error("\t " + errDetail.code + ": " + errDetail.details);
+          var errDetail = body.statusDetails.errors[i]
+          console.error('\t ' + errDetail.code + ': ' + errDetail.details)
         }
-        throw new Error(COMMIT_FAILED_MSG);
+        throw new Error(COMMIT_FAILED_MSG)
       }
     })
     .catch((err) => {
-      console.log(err);
-      throw new Error(COMMIT_FAILED_MSG);
-    });
+      console.log(err)
+      throw new Error(COMMIT_FAILED_MSG)
+    })
 }
 
 /**
@@ -269,17 +275,17 @@ export function getAppResource(
   token: request.AccessToken,
   appId: string
 ): Q.Promise<any> {
-  console.debug(`Getting app resource from ID ${appId}`);
+  console.debug(`Getting app resource from ID ${appId}`)
   var requestParams = {
-    url: ROOT + "applications/" + appId,
-    method: "GET",
-  };
+    url: ROOT + 'applications/' + appId,
+    method: 'GET',
+  }
 
   var getGenerator = () =>
-    request.performAuthenticatedRequest<any>(token, requestParams);
+    request.performAuthenticatedRequest<any>(token, requestParams)
   return request.withRetry(NUM_RETRIES, getGenerator, (err) =>
     request.isRetryableError(err)
-  );
+  )
 }
 
 /**
@@ -289,17 +295,17 @@ export function deleteSubmission(
   token: request.AccessToken,
   url: string
 ): Q.Promise<void> {
-  console.debug(`Deleting submission at ${url}`);
+  console.debug(`Deleting submission at ${url}`)
   var requestParams = {
     url: url,
-    method: "DELETE",
-  };
+    method: 'DELETE',
+  }
 
   var deleteGenerator = () =>
-    request.performAuthenticatedRequest<void>(token, requestParams);
+    request.performAuthenticatedRequest<void>(token, requestParams)
   return request.withRetry(NUM_RETRIES, deleteGenerator, (err) =>
     request.isRetryableError(err, false)
-  );
+  )
 }
 
 /**
@@ -310,17 +316,17 @@ export function createSubmission(
   token: request.AccessToken,
   url: string
 ): Q.Promise<any> {
-  console.debug("Creating new submission");
+  console.debug('Creating new submission')
   var requestParams = {
     url: url,
-    method: "POST",
-  };
+    method: 'POST',
+  }
 
   var putGenerator = () =>
-    request.performAuthenticatedRequest<any>(token, requestParams);
+    request.performAuthenticatedRequest<any>(token, requestParams)
   return request.withRetry(NUM_RETRIES, putGenerator, (err) =>
     request.isRetryableError(err, false)
-  );
+  )
 }
 
 /**
@@ -332,20 +338,20 @@ export function putSubmission(
   url: string,
   submissionResource: any
 ): Q.Promise<void> {
-  console.debug(`Updating submission`);
+  console.debug(`Updating submission`)
 
   var requestParams = {
     url: url,
-    method: "PUT",
+    method: 'PUT',
     json: true, // Sets content-type and length for us, and parses the request/response appropriately
     body: submissionResource,
-  };
+  }
 
   var putGenerator = () =>
-    request.performAuthenticatedRequest<void>(token, requestParams);
+    request.performAuthenticatedRequest<void>(token, requestParams)
   return request.withRetry(NUM_RETRIES, putGenerator, (err) =>
     request.isRetryableError(err, false)
-  );
+  )
 }
 
 /**
@@ -356,18 +362,18 @@ export function commitSubmission(
   token: request.AccessToken,
   url: string
 ): Q.Promise<void> {
-  console.debug(`Committing submission`);
+  console.debug(`Committing submission`)
 
   var requestParams = {
     url: url,
-    method: "POST",
-  };
+    method: 'POST',
+  }
 
   var postGenerator = () =>
-    request.performAuthenticatedRequest<void>(token, requestParams);
+    request.performAuthenticatedRequest<void>(token, requestParams)
   return request.withRetry(NUM_RETRIES, postGenerator, (err) =>
     request.isRetryableError(err, false)
-  );
+  )
 }
 
 /**
@@ -380,21 +386,22 @@ export function updatePackageDeliveryOptions(
   submissionResource: any,
   mandatoryUpdateDifferHours?: number
 ): void {
-  var mandatoryUpdateEffectiveDate: Date = new Date(0);
+  var mandatoryUpdateEffectiveDate: Date = new Date(0)
   if (mandatoryUpdateDifferHours) {
     mandatoryUpdateEffectiveDate.setTime(
       Date.now() + mandatoryUpdateDifferHours * 60 * 60 * 1000
-    );
+    )
     console.debug(
       `Setting isMandatoryUpdate to true, mandatoryUpdateEffectiveDate to ${mandatoryUpdateEffectiveDate.toISOString()}`
-    );
+    )
   } else {
-    console.debug(`Setting isMandatoryUpdate to false`);
+    console.debug(`Setting isMandatoryUpdate to false`)
   }
 
   submissionResource.packageDeliveryOptions.isMandatoryUpdate =
-    mandatoryUpdateDifferHours !== null;
-  submissionResource.packageDeliveryOptions.mandatoryUpdateEffectiveDate = mandatoryUpdateEffectiveDate.toISOString();
+    mandatoryUpdateDifferHours !== null
+  submissionResource.packageDeliveryOptions.mandatoryUpdateEffectiveDate =
+    mandatoryUpdateEffectiveDate.toISOString()
 }
 
 /**
@@ -402,20 +409,20 @@ export function updatePackageDeliveryOptions(
  */
 function createZipStream(zip: {
   generateNodeStream: (arg0: {
-    base64: boolean;
-    compression: string;
-    type: string;
-    streamFiles: boolean;
-  }) => NodeJS.ReadableStream;
+    base64: boolean
+    compression: string
+    type: string
+    streamFiles: boolean
+  }) => NodeJS.ReadableStream
 }): NodeJS.ReadableStream {
   var zipGenerationOptions = {
     base64: false,
-    compression: "DEFLATE",
-    type: "nodebuffer",
+    compression: 'DEFLATE',
+    type: 'nodebuffer',
     streamFiles: true,
-  };
+  }
 
-  return zip.generateNodeStream(zipGenerationOptions);
+  return zip.generateNodeStream(zipGenerationOptions)
 }
 
 /**
@@ -425,18 +432,18 @@ function createZipFile(
   zipStream: NodeJS.ReadableStream,
   filename: string
 ): Q.Promise<string> {
-  var defer = Q.defer<string>();
+  var defer = Q.defer<string>()
 
   zipStream
     .pipe(fs.createWriteStream(filename))
-    .on("finish", function () {
-      defer.resolve();
+    .on('finish', function () {
+      defer.resolve()
     })
-    .on("error", function (err) {
-      defer.reject(`Failed to create ${filename}. Error = ${err}`);
-    });
+    .on('error', function (err) {
+      defer.reject(`Failed to create ${filename}. Error = ${err}`)
+    })
 
-  return defer.promise;
+  return defer.promise
 }
 
 /**
@@ -448,19 +455,19 @@ function createZipFile(
 export async function persistZip(
   zip: {
     generateNodeStream: (arg0: {
-      base64: boolean;
-      compression: string;
-      type: string;
-      streamFiles: boolean;
-    }) => NodeJS.ReadableStream;
+      base64: boolean
+      compression: string
+      type: string
+      streamFiles: boolean
+    }) => NodeJS.ReadableStream
   },
   filePath: string,
   blobUrl: string
 ) {
-  var buf: NodeJS.ReadableStream = createZipStream(zip);
-  await createZipFile(buf, filePath);
-  console.log("Uploading zip file...");
-  return await uploadZip(filePath, blobUrl);
+  var buf: NodeJS.ReadableStream = createZipStream(zip)
+  await createZipFile(buf, filePath)
+  console.log('Uploading zip file...')
+  return await uploadZip(filePath, blobUrl)
 }
 
 /**
@@ -469,55 +476,55 @@ export async function persistZip(
  * @return A promise for the upload of the zip file.
  */
 async function uploadZip(filePath: string, blobUrl: string): Promise<any> {
-  console.debug(`Uploading zip file to ${blobUrl}`);
+  console.debug(`Uploading zip file to ${blobUrl}`)
   /* The URL we get from the Store sometimes has unencoded '+' and '=' characters because of a
    * base64 parameter. There is no good way to fix this, because we don't really know how to
    * distinguish between 'correct' uses of those characters, and their spurious instances in
    * the base64 parameter. In our case, we just take the compromise of replacing every instance
    * of '+' with its url-encoded counterpart. */
-  var dest = blobUrl.replace(/\+/g, "%2B");
+  var dest = blobUrl.replace(/\+/g, '%2B')
 
-  var urlObject = url.parse(dest);
+  var urlObject = url.parse(dest)
 
-  var pathParts = urlObject.pathname.split("/");
+  var pathParts = urlObject.pathname.split('/')
   //pathname property returns path with leading '/'. Thus, pathParts[0] will always be empty.
-  var containerName = pathParts[1];
-  var blobName = pathParts[2];
+  var containerName = pathParts[1]
+  var blobName = pathParts[2]
 
-  var host = urlObject.host;
-  var sasToken = urlObject.search;
+  var host = urlObject.host
+  var sasToken = urlObject.search
 
   const pipeline = newPipeline(new AnonymousCredential(), {
-    retryOptions: { maxTries: 4 }, // Retry options
-    userAgentOptions: { userAgentPrefix: "AdvancedSample V1.0.0" }, // Customized telemetry string
+    retryOptions: {maxTries: 4}, // Retry options
+    userAgentOptions: {userAgentPrefix: 'AdvancedSample V1.0.0'}, // Customized telemetry string
     keepAliveOptions: {
       // Keep alive is enabled by default, disable keep alive by setting false
       enable: false,
     },
-  });
+  })
 
   const blobServiceClient = new BlobServiceClient(
     `https://${host}${sasToken}`,
     pipeline
-  );
+  )
 
-  const containerClient = blobServiceClient.getContainerClient(containerName);
-  const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-  var defer = Q.defer();
+  const containerClient = blobServiceClient.getContainerClient(containerName)
+  const blockBlobClient = containerClient.getBlockBlobClient(blobName)
+  var defer = Q.defer()
   try {
     await blockBlobClient.uploadFile(filePath, {
       blockSize: 4 * 1024 * 1024, // 4MB block size
       concurrency: 20,
-    });
-    console.log("uploadFile succeeds");
-    defer.resolve();
-  } catch (err) {
+    })
+    console.log('uploadFile succeeds')
+    defer.resolve()
+  } catch (err: any) {
     console.log(
       `uploadFile failed, requestId - ${err.details.requestId}, statusCode - ${err.statusCode}, errorCode - ${err.details.errorCode}`
-    );
-    defer.reject(`Failed to upload file! Error = ${err}`);
+    )
+    defer.reject(`Failed to upload file! Error = ${err}`)
   }
-  return defer.promise;
+  return defer.promise
 }
 
 /**
@@ -528,5 +535,5 @@ async function uploadZip(filePath: string, blobUrl: string): Promise<any> {
  *      => ['0/anAppx', '1/anAppx', '2/aXap']
  */
 function makePackageEntry(pack: string, i: number): string {
-  return i.toString() + "_" + path.basename(pack);
+  return i.toString() + '_' + path.basename(pack)
 }
